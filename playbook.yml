@@ -1,0 +1,98 @@
+- hosts: app
+  become: yes
+  vars:
+    - package_name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+  tasks:
+  - name: Install Docker for Ubuntu
+    block:
+      - name: Install gnupg
+        apt:
+          state: present
+          update_cache: yes
+          name: gnupg
+
+      - name: Install gpg key
+        apt_key:
+          url: https://download.docker.com/linux/ubuntu/gpg
+          state: present
+
+      - name: Add repo Docker
+        apt_repository:
+           repo: deb https://download.docker.com/linux/ubuntu focal stable
+           state: present
+
+      - name: Install Docker
+        apt:
+          update_cache: yes
+          name: "{{ package_name }}"
+          state: present
+
+    when: ansible_facts['distribution'] == "Ubuntu"
+
+  - name: Install Docker for CentOS
+    block:
+      - name: Add repo Docker for Centos
+        yum_repository:
+          name: Docker
+          description: Docker repo
+          baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+          state: present
+          gpgkey: https://download.docker.com/linux/centos/gpg
+
+      - name: Install Docker for CentOS
+        yum:
+          state: present
+          update_cache: yes
+          name: "{{ package_name }}"
+
+    when: ansible_facts['distribution'] == "CentOS"
+
+  - name: Start Docker
+    service:
+      name: docker
+      state: started
+
+
+- hosts: database
+  become: yes
+  tasks:
+  - name: Install gpg key postgresql
+    apt_key:
+      url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+      state: present
+
+  - name: Add repo postgresql
+    apt_repository:
+        repo: deb http://apt.postgresql.org/pub/repos/apt focal-pgdg main
+        state: present
+
+  - name: Install postgresql
+    apt:
+      name: 'postgresql-{{postgresql_version}}'
+      state: present
+      update_cache: yes
+
+  - name: Create data directory for postgresql
+    file:
+      path: "{{data_directory}}"
+      owner: postgres
+      group: postgres
+      state: directory
+
+  - name: Init new data directory for postgresql
+    shell: "su postgres -c '/usr/lib/postgresql/{{postgresql_version}}/bin/initdb -D {{data_directory}}'"
+    ignore_errors: yes
+
+  - name: Edit data directory
+    lineinfile:
+      path: /etc/postgresql/{{postgresql_version}}/main/postgresql.conf
+      regexp: "^data_directory"
+      line: "data_directory = '{{data_directory}}'"
+
+  - name: Start postgres whith new data_directory
+    service:
+      name: postgresql
+      state: restarted
